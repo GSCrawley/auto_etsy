@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.env
+
+myenv/
+myenv/*
+myenv/.*
+venv/
+venv/*
+venv/.*
+
+# IDE / OS specific
+.vscode/
+.idea/
+.DS_Store
+
+# Data files (if any stored locally and not versioned)
+/data/*
+!/data/.gitkeep
+
+# Notebook checkpoints
+.ipynb_checkpoints/
+.clinerules/
+
+.clinedirectory/
