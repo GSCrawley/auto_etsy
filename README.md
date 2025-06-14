@@ -64,4 +64,104 @@ The project will be implemented in the following key phases:
 
 ## Getting Started
 
-(To be populated with setup and usage instructions as the project develops)
+### Prerequisites
+
+- Python 3.8 or higher
+- Instagram account (for image acquisition)
+- Printify account with API key
+- Etsy shop connected to your Printify account
+- (Optional) Google Cloud Storage account for image storage
+
+### Installation
+
+1. Clone this repository:
+   ```bash
+   git clone https://github.com/yourusername/auto_etsy.git
+   cd auto_etsy
+   ```
+
+2. Create and activate a virtual environment:
+   ```bash
+   python -m venv myenv
+   # On Windows
+   myenv\Scripts\activate
+   # On macOS/Linux
+   source myenv/bin/activate
+   ```
+
+3. Install the required dependencies:
+   ```bash
+   pip install -r requirements.txt
+   ```
+
+4. Create a `.env` file in the project root with your credentials:
+   ```
+   # Instagram credentials
+   INSTAGRAM_USERNAME=your_instagram_username
+   INSTAGRAM_PASSWORD=your_instagram_password
+   
+   # Printify API credentials
+   PRINTIFY_API_TOKEN=your_printify_api_token
+   PRINTIFY_SHOP_ID=your_printify_shop_id
+   
+   # Google Cloud Storage (optional)
+   USE_GCS=False
+   GCS_BUCKET_NAME=your_gcs_bucket_name
+   GOOGLE_APPLICATION_CREDENTIALS=path/to/your/credentials.json
+   ```
+
+### Usage
+
+The application can be run using the `run.py` script at the project root:
+
+```bash
+# Run the full workflow (all phases)
+python run.py --workflow full --instagram-user yourusername --limit 10
+
+# Run only the image acquisition phase
+python run.py --workflow acquisition --instagram-user yourusername --limit 5
+
+# Run only the image processing phase (using existing images)
+python run.py --workflow processing --input-dir data/raw --output-dir data/processed
+
+# Run only the Print-on-Demand integration phase
+python run.py --workflow pod
+
+# Run with debug logging enabled
+python run.py --workflow full --debug
+
+# Get help on available options
+python run.py --help
+```
+
+### Workflow Phases
+
+1. **Acquisition**: Scrapes images from Instagram and filters them based on criteria
+2. **Processing**: Optimizes images for printing (resizing, enhancing, etc.)
+3. **POD Integration**: Uploads processed images to Printify and creates products
+4. **Etsy Management**: Manages Etsy listings via Printify integration
+5. **Discovery**: (Future) Implements search capabilities for finding optimal images
+
+### Directory Structure
+
+- `data/`: Stores images and metadata
+  - `raw/`: Raw images downloaded from Instagram
+  - `processed/`: Processed and optimized images
+  - `metadata/`: Metadata about images and workflow runs
+- `src/`: Source code
+  - `phase1_acquisition/`: Instagram scraping and image filtering
+  - `phase2_processing/`: Image processing and optimization
+  - `phase3_pod_integration/`: Printify API integration
+  - `phase4_etsy_management/`: Etsy shop management
+  - `phase5_search_discovery/`: Search and discovery features
+  - `utils/`: Utility functions and helpers
+- `tests/`: Unit and integration tests
+- `notebooks/`: Jupyter notebooks for exploration and analysis
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
