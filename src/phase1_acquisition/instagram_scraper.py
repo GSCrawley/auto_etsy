@@ -6,6 +6,7 @@ from apify_client import ApifyClient
 from .. import config
 from ..utils.image_utils import download_image, is_landscape, get_image_metadata, create_storage_structure
 from ..utils.gcs_storage import GCSStorage
+from ..utils.image_tracker import ImageTracker
 from .image_filter import ImageContentFilter
 from .enhanced_content_filter import EnhancedContentFilter
 
