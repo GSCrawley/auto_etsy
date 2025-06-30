@@ -39,6 +39,7 @@ if PROJECT_ROOT not in sys.path:
 from src import config
 from src.phase1_acquisition.instagram_scraper import InstagramScraper, process_instagram_posts
 from src.phase1_acquisition.image_filter import ImageFilter, ImageContentFilter
+from src.phase1_acquisition.enhanced_content_filter import EnhancedContentFilter
 from src.phase2_processing.image_processor import ImageProcessor
 from src.phase3_pod_integration.printify_api import PrintifyAPI
 from src.phase5_search_discovery import SearchDiscovery
@@ -79,6 +80,22 @@ def parse_arguments():
                         
     parser.add_argument('--landscape-only', '-lo', action='store_true', default=False,
                         help='Filter for landscape images only')
+    
+    # Enhanced filtering options
+    parser.add_argument('--enhanced-filter', '-ef', action='store_true', default=True,
+                        help='Enable enhanced content filtering with video detection and quality scoring')
+                        
+    parser.add_argument('--content-categories', '-cc', type=str,
+                        help='Comma-separated list of content categories (e.g. "landscape,sunset,water,nature")')
+                        
+    parser.add_argument('--min-quality-score', '-mqs', type=float,
+                        help='Minimum quality score (0.0-1.0) for enhanced filtering')
+                        
+    parser.add_argument('--min-category-score', '-mcs', type=float,
+                        help='Minimum category match score (0.0-1.0) for enhanced filtering')
+                        
+    parser.add_argument('--min-overall-score', '-mos', type=float,
+                        help='Minimum overall score (0.0-1.0) for enhanced filtering')
     
     parser.add_argument('--debug', '-d', action='store_true',
                         help='Enable debug logging')
@@ -132,8 +149,14 @@ def run_acquisition_phase(args) -> List[str]:
     # Create base directory
     os.makedirs(args.input_dir, exist_ok=True)
     
+    # Set up enhanced filtering parameters
+    content_categories = None
+    if args.content_categories:
+        content_categories = [cat.strip() for cat in args.content_categories.split(',') if cat.strip()]
+        logger.info(f"Using custom content categories: {content_categories}")
+    
     # Process Instagram posts with direct function call for more flexibility
-    logger.info(f"Starting Instagram scraping with content filtering. Limit: {args.limit} posts")
+    logger.info(f"Starting Instagram scraping with enhanced filtering. Limit: {args.limit} posts")
     processed_posts = process_instagram_posts(
         profile_urls=profile_urls,
         max_posts=args.limit,
@@ -142,7 +165,12 @@ def run_acquisition_phase(args) -> List[str]:
         base_dir=args.input_dir,
         use_gcs=hasattr(config, 'USE_GCS') and config.USE_GCS,
         content_filter_terms=content_filter_terms,
-        use_content_filter=args.content_filter
+        use_content_filter=args.content_filter,
+        use_enhanced_filtering=args.enhanced_filter,
+        content_categories=content_categories,
+        min_quality_score=args.min_quality_score,
+        min_category_score=args.min_category_score,
+        min_overall_score=args.min_overall_score
     )
     
     if not processed_posts:
