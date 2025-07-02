@@ -6,7 +6,9 @@ from apify_client import ApifyClient
 from .. import config
 from ..utils.image_utils import download_image, is_landscape, get_image_metadata, create_storage_structure
 from ..utils.gcs_storage import GCSStorage
+from ..utils.image_tracker import ImageTracker
 from .image_filter import ImageContentFilter
+from .enhanced_content_filter import EnhancedContentFilter
 
 # Setup logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -308,7 +310,12 @@ def process_instagram_posts(profile_urls: List[str] = None,
                             base_dir: str = 'data',
                             use_gcs: bool = False,
                             content_filter_terms: List[str] = None,
-                            use_content_filter: bool = False) -> List[Dict[str, Any]]:
+                            use_content_filter: bool = False,
+                            use_enhanced_filtering: bool = None,
+                            content_categories: List[str] = None,
+                            min_quality_score: float = None,
+                            min_category_score: float = None,
+                            min_overall_score: float = None) -> List[Dict[str, Any]]:
     """
     Complete workflow to scrape Instagram posts, download images, and process metadata.
     
@@ -322,6 +329,11 @@ def process_instagram_posts(profile_urls: List[str] = None,
         content_filter_terms: List of content terms to filter by (e.g. 'sunset', 'mountains').
                               Defaults to config.CV_CONTENT_DESCRIPTIONS_FILTER if None.
         use_content_filter: Whether to use Google Vision API for content filtering.
+        use_enhanced_filtering: Whether to use enhanced content filtering. Defaults to config value.
+        content_categories: List of content categories for enhanced filtering. Defaults to config value.
+        min_quality_score: Minimum quality score for enhanced filtering. Defaults to config value.
+        min_category_score: Minimum category score for enhanced filtering. Defaults to config value.
+        min_overall_score: Minimum overall score for enhanced filtering. Defaults to config value.
         
     Returns:
         A list of processed posts with image paths and metadata.
@@ -389,56 +401,154 @@ def process_instagram_posts(profile_urls: List[str] = None,
         use_gcs=use_gcs
     )
     
+    # Determine which filtering approach to use
+    if use_enhanced_filtering is None:
+        use_enhanced_filtering = getattr(config, 'USE_ENHANCED_FILTERING', True)
+    
     # Apply content filtering if requested
-    if use_content_filter and processed_posts:
-        # Initialize content filter
-        content_filter = ImageContentFilter(use_google_vision=True)
+    if (use_content_filter or use_enhanced_filtering) and processed_posts:
         
-        # Set content filter terms
-        if content_filter_terms:
-            content_filter.content_filters = content_filter_terms
-        elif config.CV_CONTENT_DESCRIPTIONS_FILTER:
-            content_filter.content_filters = config.CV_CONTENT_DESCRIPTIONS_FILTER
+        if use_enhanced_filtering:
+            # Use Enhanced Content Filter
+            logger.info("Using Enhanced Content Filtering system")
             
-        if not content_filter.content_filters:
-            logger.warning("No content filter terms provided. Skipping content filtering.")
-        else:
-            logger.info(f"Applying content filtering with terms: {content_filter.content_filters}")
+            # Set default values from config if not provided
+            if content_categories is None:
+                content_categories = getattr(config, 'ENHANCED_CONTENT_CATEGORIES', ['landscape', 'sunset', 'water', 'nature', 'mountains'])
+            if min_quality_score is None:
+                min_quality_score = getattr(config, 'MIN_QUALITY_SCORE', 0.5)
+            if min_category_score is None:
+                min_category_score = getattr(config, 'MIN_CATEGORY_SCORE', 0.5)
+            if min_overall_score is None:
+                min_overall_score = getattr(config, 'MIN_OVERALL_SCORE', 0.6)
             
-            # Filter posts by content
-            content_filtered_posts = []
+            # Initialize enhanced content filter
+            enhanced_filter = EnhancedContentFilter(use_google_vision=True)
+            
+            logger.info(f"Enhanced filtering settings:")
+            logger.info(f"  Content categories: {content_categories}")
+            logger.info(f"  Min quality score: {min_quality_score}")
+            logger.info(f"  Min category score: {min_category_score}")
+            logger.info(f"  Min overall score: {min_overall_score}")
+            
+            # Filter posts with enhanced system
+            enhanced_filtered_posts = []
             for post in processed_posts:
                 image_path = post.get('local_path')
                 if not image_path or not os.path.exists(image_path):
-                    logger.warning(f"Missing local path for post {post.get('shortcode')}. Skipping content filtering.")
+                    logger.warning(f"Missing local path for post {post.get('shortcode')}. Skipping enhanced filtering.")
                     continue
                     
                 try:
-                    # Analyze image content
-                    meets_criteria, matched_filters = content_filter.meets_content_criteria(image_path=image_path)
+                    # Analyze image with enhanced filter
+                    meets_criteria, analysis = enhanced_filter.meets_content_criteria(
+                        image_path=image_path,
+                        content_categories=content_categories,
+                        min_quality_score=min_quality_score,
+                        min_category_score=min_category_score,
+                        min_overall_score=min_overall_score
+                    )
                     
-                    # Add content analysis to post metadata
-                    post['content_filter_results'] = {
+                    # Add enhanced analysis to post metadata
+                    post['enhanced_filter_results'] = {
                         'meets_criteria': meets_criteria,
-                        'matched_filters': matched_filters
+                        'analysis': analysis
                     }
                     
-                    # Keep post if it meets content criteria
+                    # Keep post if it meets enhanced criteria
                     if meets_criteria:
-                        content_filtered_posts.append(post)
-                        logger.info(f"Post {post.get('shortcode')} meets content criteria: {matched_filters}")
+                        enhanced_filtered_posts.append(post)
+                        
+                        # Log detailed results
+                        overall_score = analysis.get('overall_score', 0)
+                        quality_score = analysis.get('quality_score', 0)
+                        is_video = analysis.get('is_video_thumbnail', False)
+                        
+                        if is_video:
+                            logger.info(f"Post {post.get('shortcode')} rejected: Video thumbnail detected")
+                        else:
+                            # Get best category matches
+                            category_matches = analysis.get('category_matches', {})
+                            best_categories = sorted(
+                                [(cat, info['score']) for cat, info in category_matches.items() if info['score'] > 0.1],
+                                key=lambda x: x[1], reverse=True
+                            )[:3]
+                            
+                            category_info = ', '.join([f'{cat}({score:.2f})' for cat, score in best_categories])
+                            logger.info(f"Post {post.get('shortcode')} accepted: overall={overall_score:.3f}, quality={quality_score:.3f}, categories=[{category_info}]")
                     else:
-                        logger.info(f"Post {post.get('shortcode')} does not meet content criteria.")
+                        # Log rejection reason
+                        overall_score = analysis.get('overall_score', 0)
+                        quality_score = analysis.get('quality_score', 0)
+                        is_video = analysis.get('is_video_thumbnail', False)
+                        
+                        if is_video:
+                            logger.info(f"Post {post.get('shortcode')} rejected: Video thumbnail detected")
+                        else:
+                            logger.info(f"Post {post.get('shortcode')} rejected: overall={overall_score:.3f} (min={min_overall_score}), quality={quality_score:.3f} (min={min_quality_score})")
+                        
                         # Optionally delete local file if it doesn't meet criteria
                         # if os.path.exists(image_path):
                         #     os.remove(image_path)
+                        
                 except Exception as e:
-                    logger.error(f"Error applying content filter to post {post.get('shortcode')}: {e}")
+                    logger.error(f"Error applying enhanced filter to post {post.get('shortcode')}: {e}")
                     # Keep the post even if filtering fails
-                    content_filtered_posts.append(post)
+                    enhanced_filtered_posts.append(post)
             
-            logger.info(f"Content filtering complete. Kept {len(content_filtered_posts)} out of {len(processed_posts)} posts.")
-            processed_posts = content_filtered_posts
+            logger.info(f"Enhanced filtering complete. Kept {len(enhanced_filtered_posts)} out of {len(processed_posts)} posts.")
+            processed_posts = enhanced_filtered_posts
+            
+        else:
+            # Use legacy content filter
+            logger.info("Using legacy content filtering system")
+            content_filter = ImageContentFilter(use_google_vision=True)
+            
+            # Set content filter terms
+            if content_filter_terms:
+                content_filter.content_filters = content_filter_terms
+            elif config.CV_CONTENT_DESCRIPTIONS_FILTER:
+                content_filter.content_filters = config.CV_CONTENT_DESCRIPTIONS_FILTER
+                
+            if not content_filter.content_filters:
+                logger.warning("No content filter terms provided. Skipping content filtering.")
+            else:
+                logger.info(f"Applying content filtering with terms: {content_filter.content_filters}")
+                
+                # Filter posts by content
+                content_filtered_posts = []
+                for post in processed_posts:
+                    image_path = post.get('local_path')
+                    if not image_path or not os.path.exists(image_path):
+                        logger.warning(f"Missing local path for post {post.get('shortcode')}. Skipping content filtering.")
+                        continue
+                        
+                    try:
+                        # Analyze image content
+                        meets_criteria, matched_filters = content_filter.meets_content_criteria(image_path=image_path)
+                        
+                        # Add content analysis to post metadata
+                        post['content_filter_results'] = {
+                            'meets_criteria': meets_criteria,
+                            'matched_filters': matched_filters
+                        }
+                        
+                        # Keep post if it meets content criteria
+                        if meets_criteria:
+                            content_filtered_posts.append(post)
+                            logger.info(f"Post {post.get('shortcode')} meets content criteria: {matched_filters}")
+                        else:
+                            logger.info(f"Post {post.get('shortcode')} does not meet content criteria.")
+                            # Optionally delete local file if it doesn't meet criteria
+                            # if os.path.exists(image_path):
+                            #     os.remove(image_path)
+                    except Exception as e:
+                        logger.error(f"Error applying content filter to post {post.get('shortcode')}: {e}")
+                        # Keep the post even if filtering fails
+                        content_filtered_posts.append(post)
+                
+                logger.info(f"Content filtering complete. Kept {len(content_filtered_posts)} out of {len(processed_posts)} posts.")
+                processed_posts = content_filtered_posts
     
     logger.info(f"Finished processing. Got {len(processed_posts)} valid posts.")
     
